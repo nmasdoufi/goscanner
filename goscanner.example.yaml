@@ -1,0 +1,37 @@
+logging:
+  path: ""
+  level: info
+  format: text
+scheduler:
+  enabled: false
+  tick: 1h
+glpi:
+  base_url: "https://glpi.local/api.php/v2.1"
+  mode: jsonapi
+  # Uncomment the legacy tokens below to talk to apirest.php.
+  # app_token: "APP"
+  # user_token: "USER"
+  oauth:
+    client_id: "scanner"
+    client_secret: "SECRET"
+    username: "glpi"
+    password: ""
+    scope: "api"
+profiles:
+  default:
+    description: "Full discovery"
+    ports: [22,80,443,135,139,445,3389,161]
+    max_workers: 128
+    timeout_ms: 800
+sites:
+  - name: "VOC"
+    ranges:
+      - cidr: "192.168.0.0/30"
+        profile: default
+        frequency: 1h
+    blacklist:
+      - "192.168.0.1"
+credentials:
+  - name: "snmp"
+    type: snmp
+    community: public
