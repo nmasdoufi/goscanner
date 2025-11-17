@@ -1,37 +1,81 @@
+# goscanner configuration file
+# See README.md for detailed documentation
+
 logging:
-  path: ""
-  level: info
-  format: text
+  path: ""          # Empty = stdout, or specify file path like "/var/log/goscanner.log"
+  level: info       # Options: debug, info, warn, error
+  format: text      # Options: text, json
+
 scheduler:
-  enabled: false
-  tick: 1h
+  enabled: false    # Set to true for periodic automatic scans
+  tick: 1h          # Scan frequency when scheduler is enabled
+
 glpi:
+  # For GLPI 10.0+ with OAuth (recommended)
   base_url: "https://glpi.local/api.php/v2.1"
   mode: jsonapi
-  # Uncomment the legacy tokens below to talk to apirest.php.
-  # app_token: "APP"
-  # user_token: "USER"
   oauth:
-    client_id: "scanner"
-    client_secret: "SECRET"
-    username: "glpi"
-    password: ""
-    scope: "api"
+    client_id: "scanner"              # OAuth client ID from GLPI Setup → OAuth Clients
+    client_secret: "SECRET"           # OAuth client secret (copy when creating client)
+    username: "glpi"                  # GLPI username for authentication
+    password: ""                      # Leave empty to be prompted securely at runtime
+    scope: "api"                      # OAuth scope (usually "api")
+
+  # For GLPI 9.x with legacy API tokens (uncomment and configure if needed)
+  # base_url: "https://glpi.local/apirest.php"
+  # mode: legacy
+  # app_token: "APP_TOKEN"            # Optional, from GLPI Setup → General → API
+  # user_token: "USER_TOKEN"          # Required, from Users → [user] → Remote access keys
+
 profiles:
   default:
-    description: "Full discovery"
-    ports: [22,80,443,135,139,445,3389,161]
-    max_workers: 128
-    timeout_ms: 800
+    description: "Full discovery with SNMP"
+    # Port list for device detection:
+    # 22=SSH, 80/443=HTTP/S, 135/139/445=Windows, 3389=RDP
+    # 161=SNMP (highly recommended), 515/9100=Printer protocols
+    ports: [22,80,443,135,139,445,3389,161,515,9100]
+    max_workers: 128      # Number of concurrent scan workers
+    timeout_ms: 800       # Connection timeout in milliseconds
+
+  fast_scan:
+    description: "Quick scan for web services only"
+    ports: [80,443]
+    max_workers: 256
+    timeout_ms: 500
+
+  printer_scan:
+    description: "Targeted scan for printers and copiers"
+    ports: [80,443,161,515,9100]
+    max_workers: 64
+    timeout_ms: 1000
+
 sites:
-  - name: "VOC"
+  - name: "Main Office"
     ranges:
-      - cidr: "192.168.0.0/30"
+      - cidr: "192.168.1.0/24"        # Main office network
         profile: default
         frequency: 1h
+      - cidr: "192.168.2.0/24"        # Secondary network
+        profile: fast_scan
+        frequency: 30m
     blacklist:
-      - "192.168.0.1"
+      - "192.168.1.1"                 # Gateway - do not scan
+      - "192.168.1.254"               # Firewall
+
+  - name: "Remote Site"
+    ranges:
+      - cidr: "10.0.10.0/24"
+        profile: default
+        frequency: 2h
+    blacklist:
+      - "10.0.10.1"
+
 credentials:
-  - name: "snmp"
+  - name: "snmp_public"
     type: snmp
-    community: public
+    community: public                 # Default SNMP community string
+
+  # Add additional SNMP communities if your devices use different strings
+  # - name: "snmp_private"
+  #   type: snmp
+  #   community: private
