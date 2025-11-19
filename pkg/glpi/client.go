@@ -109,6 +109,10 @@ func (c *Client) UpsertAsset(ctx context.Context, asset inventory.AssetModel) er
 		return fmt.Errorf("marshal inventory: %w", err)
 	}
 
+	// Debug: Log the JSON being sent (only in development)
+	// Uncomment to see inventory JSON:
+	// fmt.Printf("Sending inventory for %s:\n%s\n", asset.IP, string(body))
+
 	// Construct the inventory endpoint URL
 	// Extract the base GLPI URL (before /api.php or /apirest.php)
 	inventoryURL := getInventoryURL(c.baseURL)
@@ -155,6 +159,9 @@ func (c *Client) UpsertAsset(ctx context.Context, asset inventory.AssetModel) er
 		resp.Body.Close()
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			// Debug: Show successful response
+			// Uncomment to see GLPI response:
+			// fmt.Printf("GLPI inventory accepted (status %d): %s\n", resp.StatusCode, string(bodyBytes))
 			return nil
 		}
 
