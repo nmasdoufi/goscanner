@@ -1,30 +1,9 @@
 # goscanner
 
 `goscanner` is an agentless network discovery and asset inventory tool that scans configurable IP ranges, fingerprints the reachable devices, and pushes normalized assets into GLPI via its native inventory API. It is designed to run from a central scanner VM and scales to multiple sites by combining lightweight discovery workers with profile-driven configuration.
-`goscanner` is an agentless network discovery and asset inventory tool that scans configurable IP ranges, fingerprints the reachable devices, and pushes normalized assets into GLPI via its native inventory API. It is designed to run from a central scanner VM and scales to multiple sites by combining lightweight discovery workers with profile-driven configuration.
 
 ## Features
 
-- **Configurable discovery profiles** – assign custom port sets, worker pools, and timeouts per range or site
-- **Agentless liveness detection** – TCP SYN dialing against well-known service ports to identify active hosts
-- **Advanced fingerprinting** – Multi-method device identification using:
-  - **SNMP** – Query system information, detect printers, copiers, network equipment, and extract vendor/model details
-  - **HTTP/HTTPS** – Web server detection and banner grabbing
-  - **Port-based classification** – Intelligent device type detection based on open port patterns
-- **MAC address collection** – Automatic MAC address retrieval via ARP table lookup for same-subnet devices
-- **Enhanced device support** – Comprehensive detection for:
-  - **Computers** (Windows, Linux, servers)
-  - **Printers** (network printers, laser, inkjet)
-  - **Copiers & MFPs** (multifunction peripherals)
-  - **Network equipment** (switches, routers, access points)
-- **GLPI integration** – Native inventory API client with:
-  - OAuth 2.0 authentication (client credentials grant)
-  - Legacy API token support
-  - Automatic token refresh
-  - Retry logic with exponential backoff
-  - Full compliance with GLPI 10.0+ inventory format
-- **Scheduler-ready** – reusable scheduler component for periodic scans plus a CLI for ad-hoc runs
-- **Docker-friendly** – optimized for containerized GLPI deployments with network scanning across subnets
 - **Configurable discovery profiles** – assign custom port sets, worker pools, and timeouts per range or site
 - **Agentless liveness detection** – TCP SYN dialing against well-known service ports to identify active hosts
 - **Advanced fingerprinting** – Multi-method device identification using:
@@ -61,15 +40,6 @@ pkg/scheduler       # Periodic task runner
 
 ## Quick start
 
-### 1. Build the scanner
-
-```bash
-go build -o goscanner ./cmd/goscanner
-```
-
-### 2. Configure the scanner
-
-Copy the sample configuration file and update it for your environment:
 ### 1. Build the scanner
 
 ```bash
@@ -124,30 +94,80 @@ When GLPI credentials are configured, assets are automatically created or update
 
 The scanner uses OAuth 2.0 client credentials grant for secure authentication with GLPI's native inventory API.
 
-**In GLPI:**
-1. Navigate to **Setup → General → API**
-2. Ensure the API is enabled
-3. Navigate to **Setup → OAuth Clients**
-4. Click **Add** to create a new OAuth client:
-   - **Name:** `goscanner` (or your preferred name)
-   - **Client ID:** Generate or specify (e.g., `scanner`)
-   - **Client Secret:** Generate and **copy immediately** (shown only once)
-   - **Grant Type:** Select `Client Credentials`
-   - **Scopes:** Select `api` (required for inventory submission)
-5. Save the client
+**Step 1: Enable API in GLPI**
 
-**In goscanner.yaml:**
+1. Navigate to **Setup → General → API**
+2. Enable **"Enable Rest API"**
+3. Save
+
+**Step 2: Create OAuth Client**
+
+1. Navigate to **Setup → OAuth Clients**
+2. Click **Add** to create a new OAuth client
+3. Configure the client:
+   - **Name:** `goscanner` (or your preferred name)
+   - **Client ID:** Generate or specify (e.g., a long random string)
+   - **Client Secret:** Click generate and **copy immediately** (shown only once)
+   - **Grant Type:** Select **`Client Credentials`** (NOT "Password")
+   - **Scopes:** Select **`inventory`** and **`api`** (required for inventory submission)
+4. Save the client
+
+**Step 3: Configure Inventory Settings**
+
+1. Navigate to **Administration → Inventory → Configuration**
+2. Under **"Enable Inventory"**, ensure it's checked
+3. Under **"Authorization header"**, select **"OAuth - Client credentials"**
+4. Save the configuration
+
+**Step 4: Create Entity Assignment Rule**
+
+This rule assigns imported computers to an entity (required for computers to appear in inventory):
+
+1. Navigate to **Administration → Rules → Rules for assigning an item to an entity**
+2. Click **Add**
+3. Configure the rule:
+   - **Name:** `Auto assign to root entity`
+   - **Active:** Yes
+   - **Criteria:** Leave empty (no criteria = accept all)
+   - **Actions:** Click "Add a New Action"
+     - **Action:** Entity
+     - **Value:** Root entity (or your preferred entity)
+4. Save the rule
+
+**Step 5: Create Import/Link Rule**
+
+This rule controls how inventory data is imported:
+
+1. Navigate to **Administration → Rules → Equipment import and link rules**
+2. Click **Add**
+3. Configure the rule:
+   - **Name:** `Accept all inventory`
+   - **Active:** Yes
+   - **Criteria:** Leave empty (no criteria = accept all)
+   - **Actions:** Click "Add a New Action"
+     - **Action:** Inventory link
+     - **Assign:** Assign
+     - **Value:** Link if possible
+4. Save the rule
+
+**Step 6: Configure goscanner.yaml**
+
 ```yaml
 glpi:
-  base_url: "https://your-glpi-server.com/api.php/v2.1"
+  base_url: "http://your-glpi-server.com/api.php/v2.1"  # Use http:// for Docker, https:// for production
   mode: jsonapi
   oauth:
-    client_id: "scanner"
+    client_id: "YOUR_CLIENT_ID_HERE"
     client_secret: "YOUR_CLIENT_SECRET_HERE"
-    username: "glpi"
-    password: ""  # Leave empty to be prompted at runtime (more secure)
-    scope: "api"
+    # Do NOT include username/password for client credentials grant
+    scope: "inventory"
 ```
+
+**Important notes:**
+- Use `http://` for local Docker deployments, `https://` for production
+- Client credentials grant does NOT use username/password
+- The `inventory` scope is required for submitting inventory data
+- Make sure both rules (entity assignment and import/link) are active and ordered correctly
 
 ### Using legacy API tokens (GLPI 9.x)
 
@@ -519,13 +539,6 @@ INFO  pushing 15 assets to GLPI at https://glpi.local/front/inventory.php
 DEBUG glpi upsert successful for 192.168.1.10
 INFO  discovered 15 assets
 ```
-
-**6. "Assets pushed successfully but not appearing in GLPI"**
-- Check **Administration → Inventory** for pending/refused items
-- Verify import rules are configured correctly
-- Check **Assets → Unmanaged devices** - items might be there
-- Ensure you're viewing the correct entity in GLPI
-- **See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for detailed steps**
 
 ## License
 
