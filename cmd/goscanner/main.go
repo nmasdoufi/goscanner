@@ -60,7 +60,18 @@ func runScan(cfg *config.Config, rangeFilter string, logger *logging.Logger) {
 	defer cancel()
 	logger.Infof("starting scan run")
 	assets := []inventory.AssetModel{}
-	fp := fingerprint.NewEngine()
+
+	// Configure fingerprint engine with SNMP from credentials
+	var fpOpts []fingerprint.EngineOption
+	snmpCommunity := findSNMPCommunity(cfg)
+	if snmpCommunity != "" {
+		logger.Infof("SNMP enabled with community: %s", snmpCommunity)
+		fpOpts = append(fpOpts, fingerprint.WithSNMP(snmpCommunity))
+	} else {
+		logger.Infof("SNMP enabled with default community: public")
+	}
+	fp := fingerprint.NewEngine(fpOpts...)
+
 	for _, site := range cfg.Sites {
 		logger.Infof("site %s", site.Name)
 		for _, r := range site.Ranges {
@@ -84,8 +95,18 @@ func runScan(cfg *config.Config, rangeFilter string, logger *logging.Logger) {
 				if !host.Alive {
 					continue
 				}
-				logger.Debugf("fingerprinting %s with %d open ports", host.IP, len(host.OpenPorts))
+				logger.Debugf("fingerprinting %s with %d open ports %v", host.IP, len(host.OpenPorts), portList(host.OpenPorts))
+				if host.MAC != "" {
+					logger.Debugf("  MAC address: %s", host.MAC)
+				}
 				asset := fp.FingerprintHost(ctx, host)
+				logger.Infof("classified %s as %s (vendor: %s, model: %s)", asset.IP, asset.Type, asset.Vendor, asset.Model)
+				if asset.Hostname != "" {
+					logger.Debugf("  hostname: %s", asset.Hostname)
+				}
+				if asset.OSName != "" {
+					logger.Debugf("  OS: %s %s", asset.OSName, asset.OSVersion)
+				}
 				assets = append(assets, asset)
 			}
 		}
@@ -120,4 +141,23 @@ func maybePromptGLPIPassword(cfg *config.Config) {
 		panic(fmt.Errorf("read GLPI password: %w", err))
 	}
 	cfg.GLPI.OAuth.Password = strings.TrimSpace(line)
+}
+
+// findSNMPCommunity extracts SNMP community string from credentials
+func findSNMPCommunity(cfg *config.Config) string {
+	for _, cred := range cfg.Credentials {
+		if cred.Type == "snmp" && cred.Community != "" {
+			return cred.Community
+		}
+	}
+	return ""
+}
+
+// portList converts port map to sorted list for logging
+func portList(ports map[int]time.Duration) []int {
+	list := make([]int, 0, len(ports))
+	for port := range ports {
+		list = append(list, port)
+	}
+	return list
 }
