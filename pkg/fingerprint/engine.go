@@ -66,10 +66,16 @@ func (e *Engine) FingerprintHost(ctx context.Context, host discovery.HostResult)
 		},
 	}
 
+	if e.verbose {
+		fmt.Printf("\n[FINGERPRINT] Starting fingerprint for %s with ports: %v\n", host.IP, keys(host.OpenPorts))
+	}
+
 	// Try SNMP first for the most accurate device identification
 	if e.enableSNMP {
 		if _, ok := host.OpenPorts[161]; ok {
 			e.trySNMP(ctx, &asset, host.IP.String())
+		} else if e.verbose {
+			fmt.Printf("[FINGERPRINT] Port 161 (SNMP) not open, skipping SNMP query\n")
 		}
 	}
 
@@ -83,7 +89,17 @@ func (e *Engine) FingerprintHost(ctx context.Context, host discovery.HostResult)
 
 	// Enhanced device type classification based on open ports
 	if asset.Type == "Unknown" {
+		if e.verbose {
+			fmt.Printf("[FINGERPRINT] Using port-based classification\n")
+		}
 		asset.Type = e.classifyByPorts(host.OpenPorts)
+		if e.verbose {
+			fmt.Printf("[FINGERPRINT] Port-based classification result: %s\n", asset.Type)
+		}
+	}
+
+	if e.verbose {
+		fmt.Printf("[FINGERPRINT] Final classification: Type=%s, Vendor=%s, Model=%s\n\n", asset.Type, asset.Vendor, asset.Model)
 	}
 
 	return inventory.NormalizeAsset(asset)
@@ -94,23 +110,56 @@ func (e *Engine) tryHTTP(ctx context.Context, asset *inventory.AssetModel, ip st
 	if tls {
 		scheme = "https"
 	}
+
+	if e.verbose {
+		fmt.Printf("[HTTP] Attempting %s request to %s://%s\n", strings.ToUpper(scheme), scheme, ip)
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s://%s", scheme, ip), nil)
 	if err != nil {
+		if e.verbose {
+			fmt.Printf("[HTTP] Failed to create request: %v\n", err)
+		}
 		return
 	}
+
 	resp, err := e.httpClient.Do(req)
 	if err != nil {
+		if e.verbose {
+			fmt.Printf("[HTTP] Request failed: %v\n", err)
+		}
 		return
 	}
 	defer resp.Body.Close()
-	if asset.Hostname == "" {
-		asset.Hostname = resp.Header.Get("Server")
+
+	if e.verbose {
+		fmt.Printf("[HTTP] Response status: %d\n", resp.StatusCode)
 	}
+
+	// Extract server header
+	serverHeader := resp.Header.Get("Server")
+	if serverHeader != "" {
+		if e.verbose {
+			fmt.Printf("[HTTP] Server header: %s\n", serverHeader)
+		}
+		if asset.Hostname == "" {
+			asset.Hostname = serverHeader
+		}
+		if asset.Vendor == "" {
+			asset.Vendor = serverHeader
+		}
+	}
+
 	asset.Attributes[fmt.Sprintf("http_%s_status", scheme)] = fmt.Sprintf("%d", resp.StatusCode)
-	if asset.Vendor == "" {
-		asset.Vendor = resp.Header.Get("Server")
+
+	// Only change type to Peripheral if we got a successful response
+	// This indicates a web-enabled device (printer, copier, etc.)
+	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+		if e.verbose {
+			fmt.Printf("[HTTP] Web interface detected, likely a Peripheral device\n")
+		}
+		asset.Type = "Peripheral"
 	}
-	asset.Type = "Peripheral"
 }
 
 func keys(m map[int]time.Duration) []int {
@@ -236,31 +285,53 @@ func (e *Engine) trySNMP(ctx context.Context, asset *inventory.AssetModel, ip st
 
 // classifyByPorts determines device type based on open ports
 func (e *Engine) classifyByPorts(openPorts map[int]time.Duration) string {
+	if e.verbose {
+		fmt.Printf("[PORT-CLASSIFY] Analyzing ports: %v\n", keys(openPorts))
+	}
+
 	// Check for common printer ports
 	if hasPort(openPorts, 9100) || hasPort(openPorts, 515) {
+		if e.verbose {
+			fmt.Printf("[PORT-CLASSIFY] Found printer ports (9100 or 515) → Printer\n")
+		}
 		return "Printer"
 	}
 
 	// Check for typical network equipment ports
 	if hasPort(openPorts, 22) && hasPort(openPorts, 161) && !hasPort(openPorts, 135) {
+		if e.verbose {
+			fmt.Printf("[PORT-CLASSIFY] Found SSH+SNMP without Windows ports → NetworkEquipment\n")
+		}
 		return "NetworkEquipment"
 	}
 
 	// Check for Windows computer
 	if hasPort(openPorts, 135) || hasPort(openPorts, 139) || hasPort(openPorts, 445) {
+		if e.verbose {
+			fmt.Printf("[PORT-CLASSIFY] Found Windows SMB/RPC ports (135/139/445) → Computer\n")
+		}
 		return "Computer"
 	}
 
 	// Check for Unix/Linux computer
 	if hasPort(openPorts, 22) && (hasPort(openPorts, 80) || hasPort(openPorts, 443)) {
+		if e.verbose {
+			fmt.Printf("[PORT-CLASSIFY] Found SSH+HTTP/HTTPS → Computer (Linux)\n")
+		}
 		return "Computer"
 	}
 
 	// Default to Computer for anything with RDP or SSH
 	if hasPort(openPorts, 3389) || hasPort(openPorts, 22) {
+		if e.verbose {
+			fmt.Printf("[PORT-CLASSIFY] Found RDP or SSH → Computer\n")
+		}
 		return "Computer"
 	}
 
+	if e.verbose {
+		fmt.Printf("[PORT-CLASSIFY] No specific pattern matched → Computer (default)\n")
+	}
 	return "Computer"
 }
 
