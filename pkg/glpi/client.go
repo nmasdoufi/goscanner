@@ -337,6 +337,13 @@ func convertToGLPIInventory(asset inventory.AssetModel) *GLPIInventory {
 		}
 	}
 
+	// Build description with open ports information
+	openPorts := asset.Attributes["open_ports"]
+	description := fmt.Sprintf("Discovered by goscanner - %s", asset.Vendor)
+	if openPorts != "" {
+		description = fmt.Sprintf("%s | Open ports: %s", description, openPorts)
+	}
+
 	// Map asset type to GLPI item type
 	switch asset.Type {
 	case "Computer", "PC":
@@ -344,7 +351,7 @@ func convertToGLPIInventory(asset inventory.AssetModel) *GLPIInventory {
 		inv.Content.Hardware = &GLPIHardware{
 			Name:        asset.Hostname,
 			UUID:        asset.Serial,
-			Description: fmt.Sprintf("Discovered by goscanner - %s", asset.Vendor),
+			Description: description,
 		}
 		if asset.OSName != "" {
 			inv.Content.OperatingSystem = &GLPIOperatingSystem{
@@ -377,27 +384,58 @@ func convertToGLPIInventory(asset inventory.AssetModel) *GLPIInventory {
 		} else {
 			// For other peripherals like copiers, use Computer type with description
 			inv.ItemType = "Computer"
+			peripheralDesc := fmt.Sprintf("%s %s - Peripheral", asset.Vendor, asset.Model)
+			if openPorts != "" {
+				peripheralDesc = fmt.Sprintf("%s | Open ports: %s", peripheralDesc, openPorts)
+			}
 			inv.Content.Hardware = &GLPIHardware{
 				Name:        asset.Hostname,
 				UUID:        asset.Serial,
-				Description: fmt.Sprintf("%s %s - Peripheral", asset.Vendor, asset.Model),
+				Description: peripheralDesc,
 				ChassisType: "Peripheral",
 			}
 		}
 	default:
 		// Default to Computer for unknown types
 		inv.ItemType = "Computer"
+		defaultDesc := fmt.Sprintf("%s %s", asset.Vendor, asset.Model)
+		if openPorts != "" {
+			defaultDesc = fmt.Sprintf("%s | Open ports: %s", defaultDesc, openPorts)
+		}
 		inv.Content.Hardware = &GLPIHardware{
 			Name:        asset.Hostname,
 			UUID:        asset.Serial,
-			Description: fmt.Sprintf("%s %s", asset.Vendor, asset.Model),
+			Description: defaultDesc,
 		}
 	}
 
 	// Add network information if available
 	if asset.IP.IsValid() {
+		// Build detailed network description with discovered information
+		netDesc := "Primary Network Interface"
+		if openPorts != "" {
+			netDesc = fmt.Sprintf("%s | Open TCP ports: %s", netDesc, openPorts)
+		}
+
+		// Add HTTP/HTTPS status if available
+		if httpStatus, ok := asset.Attributes["http_http_status"]; ok {
+			netDesc = fmt.Sprintf("%s | HTTP: %s", netDesc, httpStatus)
+		}
+		if httpsStatus, ok := asset.Attributes["http_https_status"]; ok {
+			netDesc = fmt.Sprintf("%s | HTTPS: %s", netDesc, httpsStatus)
+		}
+
+		// Add SNMP info if available
+		if snmpDesc, ok := asset.Attributes["snmp_sysdescr"]; ok && snmpDesc != "" {
+			// Truncate if too long
+			if len(snmpDesc) > 100 {
+				snmpDesc = snmpDesc[:97] + "..."
+			}
+			netDesc = fmt.Sprintf("%s | SNMP: %s", netDesc, snmpDesc)
+		}
+
 		network := GLPINetwork{
-			Description: "Primary Network Interface",
+			Description: netDesc,
 			Status:      "Up",
 			Type:        "ethernet",
 		}
