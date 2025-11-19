@@ -2,6 +2,7 @@ package fingerprint
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"strings"
@@ -33,8 +34,17 @@ func WithSNMP(community string) EngineOption {
 
 // NewEngine creates new fingerprint engine.
 func NewEngine(opts ...EngineOption) *Engine {
+	// Create HTTP client that accepts self-signed certificates
+	// This is necessary for fingerprinting devices like printers, routers, etc.
+	httpClient := &http.Client{
+		Timeout: 2 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+
 	e := &Engine{
-		httpClient:    &http.Client{Timeout: 2 * time.Second},
+		httpClient:    httpClient,
 		snmpCommunity: "public",
 		enableSNMP:    true, // Enable by default
 		verbose:       true, // Enable verbose logging to show SNMP activity
