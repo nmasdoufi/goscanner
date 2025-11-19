@@ -21,7 +21,6 @@ type GLPIInventory struct {
 	Action        string              `json:"action"`
 	DeviceID      string              `json:"deviceid"`
 	ItemType      string              `json:"itemtype"`
-	VersionClient string              `json:"versionclient"`
 	Content       *GLPIInventoryContent `json:"content"`
 }
 
@@ -315,7 +314,6 @@ func convertToGLPIInventory(asset inventory.AssetModel) *GLPIInventory {
 	inv := &GLPIInventory{
 		Action:        "inventory",
 		DeviceID:      asset.Identifier,
-		VersionClient: "goscanner-v1.0",
 		Content:       &GLPIInventoryContent{},
 	}
 
