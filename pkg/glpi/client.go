@@ -293,7 +293,7 @@ func (c *Client) useOAuth() bool {
 	if c.cfg.OAuth == nil {
 		return false
 	}
-	return c.cfg.OAuth.ClientID != "" && c.cfg.OAuth.ClientSecret != "" && c.cfg.OAuth.Username != ""
+	return c.cfg.OAuth.ClientID != "" && c.cfg.OAuth.ClientSecret != ""
 }
 
 func oauthTokenURL(base string) (string, error) {
