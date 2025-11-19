@@ -435,3 +435,10 @@ INFO  pushing 15 assets to GLPI at https://glpi.local/front/inventory.php
 DEBUG glpi upsert successful for 192.168.1.10
 INFO  discovered 15 assets
 ```
+
+**6. "Assets pushed successfully but not appearing in GLPI"**
+- Check **Administration → Inventory** for pending/refused items
+- Verify import rules are configured correctly
+- Check **Assets → Unmanaged devices** - items might be there
+- Ensure you're viewing the correct entity in GLPI
+- **See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for detailed steps**
