@@ -26,6 +26,7 @@ type GLPIInventory struct {
 
 // GLPIInventoryContent contains the actual inventory data
 type GLPIInventoryContent struct {
+	VersionClient    string                  `json:"versionclient"`
 	Hardware         *GLPIHardware           `json:"hardware,omitempty"`
 	OperatingSystem  *GLPIOperatingSystem    `json:"operatingsystem,omitempty"`
 	Networks         []GLPINetwork           `json:"networks,omitempty"`
@@ -314,7 +315,9 @@ func convertToGLPIInventory(asset inventory.AssetModel) *GLPIInventory {
 	inv := &GLPIInventory{
 		Action:        "inventory",
 		DeviceID:      asset.Identifier,
-		Content:       &GLPIInventoryContent{},
+		Content:       &GLPIInventoryContent{
+			VersionClient: "goscanner-v1.0",
+		},
 	}
 
 	// Set device ID - use MAC, IP, or serial as fallback
