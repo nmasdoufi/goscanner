@@ -394,7 +394,7 @@ func convertToGLPIInventory(asset inventory.AssetModel) *GLPIInventory {
 	if asset.IP.IsValid() {
 		network := GLPINetwork{
 			Description: "Primary Network Interface",
-			Status:      "Up",
+			Status:      "up",
 			Type:        "ethernet",
 		}
 
