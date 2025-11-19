@@ -17,6 +17,7 @@ type Engine struct {
 	httpClient     *http.Client
 	snmpCommunity  string
 	enableSNMP     bool
+	verbose        bool // Enable verbose logging
 }
 
 // EngineOption configures the fingerprint engine
@@ -36,6 +37,7 @@ func NewEngine(opts ...EngineOption) *Engine {
 		httpClient:    &http.Client{Timeout: 2 * time.Second},
 		snmpCommunity: "public",
 		enableSNMP:    true, // Enable by default
+		verbose:       true, // Enable verbose logging to show SNMP activity
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -121,6 +123,10 @@ func keys(m map[int]time.Duration) []int {
 
 // trySNMP performs SNMP queries to identify the device
 func (e *Engine) trySNMP(ctx context.Context, asset *inventory.AssetModel, ip string) {
+	if e.verbose {
+		fmt.Printf("[SNMP] Attempting SNMP query to %s (community: %s)\n", ip, e.snmpCommunity)
+	}
+
 	snmp := &gosnmp.GoSNMP{
 		Target:    ip,
 		Port:      161,
@@ -132,6 +138,9 @@ func (e *Engine) trySNMP(ctx context.Context, asset *inventory.AssetModel, ip st
 
 	err := snmp.Connect()
 	if err != nil {
+		if e.verbose {
+			fmt.Printf("[SNMP] Connection failed to %s: %v\n", ip, err)
+		}
 		return
 	}
 	defer snmp.Conn.Close()
@@ -140,7 +149,14 @@ func (e *Engine) trySNMP(ctx context.Context, asset *inventory.AssetModel, ip st
 	oids := []string{oidSysDescr, oidSysName, oidSysObjectID}
 	result, err := snmp.Get(oids)
 	if err != nil {
+		if e.verbose {
+			fmt.Printf("[SNMP] Query failed for %s: %v\n", ip, err)
+		}
 		return
+	}
+
+	if e.verbose {
+		fmt.Printf("[SNMP] Successfully queried %s\n", ip)
 	}
 
 	for _, variable := range result.Variables {
@@ -149,6 +165,10 @@ func (e *Engine) trySNMP(ctx context.Context, asset *inventory.AssetModel, ip st
 			if desc, ok := variable.Value.([]byte); ok {
 				sysDescr := string(desc)
 				asset.Attributes["snmp_sysdescr"] = sysDescr
+
+				if e.verbose {
+					fmt.Printf("[SNMP]   sysDescr: %s\n", sysDescr)
+				}
 
 				// Parse device type from system description
 				sysDescrLower := strings.ToLower(sysDescr)
@@ -181,7 +201,13 @@ func (e *Engine) trySNMP(ctx context.Context, asset *inventory.AssetModel, ip st
 				}
 
 				// Extract vendor information
-				asset.Vendor = extractVendor(sysDescr)
+				vendor := extractVendor(sysDescr)
+				if vendor != "" {
+					asset.Vendor = vendor
+					if e.verbose {
+						fmt.Printf("[SNMP]   Detected vendor: %s\n", vendor)
+					}
+				}
 			}
 
 		case oidSysName:
@@ -191,6 +217,9 @@ func (e *Engine) trySNMP(ctx context.Context, asset *inventory.AssetModel, ip st
 					asset.Hostname = hostname
 				}
 				asset.Attributes["snmp_sysname"] = hostname
+				if e.verbose {
+					fmt.Printf("[SNMP]   sysName: %s\n", hostname)
+				}
 			}
 
 		case oidSysObjectID:

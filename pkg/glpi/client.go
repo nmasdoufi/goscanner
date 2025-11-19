@@ -112,6 +112,8 @@ func (c *Client) UpsertAsset(ctx context.Context, asset inventory.AssetModel) er
 	// Debug: Log the JSON being sent (only in development)
 	// Uncomment to see inventory JSON:
 	fmt.Printf("Sending inventory for %s:\n%s\n", asset.IP, string(body))
+	// Debug: Log the JSON being sent
+	fmt.Printf("\n[GLPI] Sending inventory for %s:\n%s\n\n", asset.IP, string(body))
 
 	// Construct the inventory endpoint URL
 	// Extract the base GLPI URL (before /api.php or /apirest.php)
@@ -162,6 +164,7 @@ func (c *Client) UpsertAsset(ctx context.Context, asset inventory.AssetModel) er
 			// Debug: Show successful response
 			// Uncomment to see GLPI response:
 			fmt.Printf("GLPI inventory accepted (status %d): %s\n", resp.StatusCode, string(bodyBytes))
+			fmt.Printf("[GLPI] Inventory accepted for %s (status %d): %s\n\n", asset.IP, resp.StatusCode, string(bodyBytes))
 			return nil
 		}
 
