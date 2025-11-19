@@ -111,7 +111,7 @@ func (c *Client) UpsertAsset(ctx context.Context, asset inventory.AssetModel) er
 
 	// Debug: Log the JSON being sent (only in development)
 	// Uncomment to see inventory JSON:
-	// fmt.Printf("Sending inventory for %s:\n%s\n", asset.IP, string(body))
+	fmt.Printf("Sending inventory for %s:\n%s\n", asset.IP, string(body))
 
 	// Construct the inventory endpoint URL
 	// Extract the base GLPI URL (before /api.php or /apirest.php)
@@ -161,7 +161,7 @@ func (c *Client) UpsertAsset(ctx context.Context, asset inventory.AssetModel) er
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			// Debug: Show successful response
 			// Uncomment to see GLPI response:
-			// fmt.Printf("GLPI inventory accepted (status %d): %s\n", resp.StatusCode, string(bodyBytes))
+			fmt.Printf("GLPI inventory accepted (status %d): %s\n", resp.StatusCode, string(bodyBytes))
 			return nil
 		}
 
@@ -343,9 +343,14 @@ func convertToGLPIInventory(asset inventory.AssetModel) *GLPIInventory {
 	// Map asset type to GLPI item type
 	switch asset.Type {
 	case "Computer", "PC":
+		computerName := asset.Hostname
+		if computerName == "" {
+			computerName = asset.IP.String() // Use IP as fallback name
+		}
+
 		inv.ItemType = "Computer"
 		inv.Content.Hardware = &GLPIHardware{
-			Name:        asset.Hostname,
+			Name:        computerName,
 			UUID:        asset.Serial,
 			Description: fmt.Sprintf("Discovered by goscanner - %s", asset.Vendor),
 		}
