@@ -246,8 +246,8 @@ func (c *Client) ensureOAuthToken(ctx context.Context) error {
 	form.Set("grant_type", "client_credentials")
 	form.Set("client_id", c.cfg.OAuth.ClientID)
 	form.Set("client_secret", c.cfg.OAuth.ClientSecret)
-	form.Set("username", c.cfg.OAuth.Username)
-	form.Set("password", c.cfg.OAuth.Password)
+	// form.Set("username", c.cfg.OAuth.Username)
+	// form.Set("password", c.cfg.OAuth.Password)
 	scope := c.cfg.OAuth.Scope
 	if scope == "" {
 		scope = "api"
