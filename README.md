@@ -1,9 +1,30 @@
 # goscanner
 
 `goscanner` is an agentless network discovery and asset inventory tool that scans configurable IP ranges, fingerprints the reachable devices, and pushes normalized assets into GLPI via its native inventory API. It is designed to run from a central scanner VM and scales to multiple sites by combining lightweight discovery workers with profile-driven configuration.
+`goscanner` is an agentless network discovery and asset inventory tool that scans configurable IP ranges, fingerprints the reachable devices, and pushes normalized assets into GLPI via its native inventory API. It is designed to run from a central scanner VM and scales to multiple sites by combining lightweight discovery workers with profile-driven configuration.
 
 ## Features
 
+- **Configurable discovery profiles** – assign custom port sets, worker pools, and timeouts per range or site
+- **Agentless liveness detection** – TCP SYN dialing against well-known service ports to identify active hosts
+- **Advanced fingerprinting** – Multi-method device identification using:
+  - **SNMP** – Query system information, detect printers, copiers, network equipment, and extract vendor/model details
+  - **HTTP/HTTPS** – Web server detection and banner grabbing
+  - **Port-based classification** – Intelligent device type detection based on open port patterns
+- **MAC address collection** – Automatic MAC address retrieval via ARP table lookup for same-subnet devices
+- **Enhanced device support** – Comprehensive detection for:
+  - **Computers** (Windows, Linux, servers)
+  - **Printers** (network printers, laser, inkjet)
+  - **Copiers & MFPs** (multifunction peripherals)
+  - **Network equipment** (switches, routers, access points)
+- **GLPI integration** – Native inventory API client with:
+  - OAuth 2.0 authentication (client credentials grant)
+  - Legacy API token support
+  - Automatic token refresh
+  - Retry logic with exponential backoff
+  - Full compliance with GLPI 10.0+ inventory format
+- **Scheduler-ready** – reusable scheduler component for periodic scans plus a CLI for ad-hoc runs
+- **Docker-friendly** – optimized for containerized GLPI deployments with network scanning across subnets
 - **Configurable discovery profiles** – assign custom port sets, worker pools, and timeouts per range or site
 - **Agentless liveness detection** – TCP SYN dialing against well-known service ports to identify active hosts
 - **Advanced fingerprinting** – Multi-method device identification using:
@@ -40,6 +61,15 @@ pkg/scheduler       # Periodic task runner
 
 ## Quick start
 
+### 1. Build the scanner
+
+```bash
+go build -o goscanner ./cmd/goscanner
+```
+
+### 2. Configure the scanner
+
+Copy the sample configuration file and update it for your environment:
 ### 1. Build the scanner
 
 ```bash

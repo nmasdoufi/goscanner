@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
-"github.com/x1thexxx-lgtm/goscanner/pkg/config"
-"github.com/x1thexxx-lgtm/goscanner/pkg/logging"
+	"github.com/x1thexxx-lgtm/goscanner/pkg/config"
+	"github.com/x1thexxx-lgtm/goscanner/pkg/logging"
 )
 
 // HostResult describes liveness outcome.
@@ -17,6 +19,7 @@ type HostResult struct {
 	IP        netip.Addr
 	Alive     bool
 	OpenPorts map[int]time.Duration
+	MAC       string
 	LastError error
 }
 
@@ -72,6 +75,12 @@ func (s *Scanner) ScanCIDR(ctx context.Context, cidr string) ([]HostResult, erro
 					conn.Close()
 				}
 			}
+
+			// Attempt to get MAC address if host is alive
+			if res.Alive {
+				res.MAC = getMACAddress(ip.String())
+			}
+
 			mu.Lock()
 			results = append(results, res)
 			mu.Unlock()
@@ -112,4 +121,77 @@ func expandCIDR(cidr string) ([]netip.Addr, error) {
 		}
 	}
 	return ips, nil
+}
+
+// getMACAddress attempts to retrieve MAC address for an IP via ARP
+func getMACAddress(ip string) string {
+	// Try to get MAC from ARP table
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+
+	// Parse the target IP
+	targetIP := net.ParseIP(ip)
+	if targetIP == nil {
+		return ""
+	}
+
+	// Check each interface to find if the IP is in the same subnet
+	for _, iface := range interfaces {
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+
+		for _, addr := range addrs {
+			ipNet, ok := addr.(*net.IPNet)
+			if !ok {
+				continue
+			}
+
+			// Check if target IP is in this subnet
+			if ipNet.Contains(targetIP) {
+				// On same subnet, try ARP lookup
+				if mac := lookupARPCache(ip); mac != "" {
+					return mac
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+// lookupARPCache reads the system ARP cache to find MAC address
+func lookupARPCache(ip string) string {
+	// This implementation uses platform-specific commands
+	// For Linux: read /proc/net/arp
+	// For Windows: use arp -a command
+	// For macOS: use arp -n command
+
+	// Try reading /proc/net/arp (Linux)
+	data, err := os.ReadFile("/proc/net/arp")
+	if err == nil {
+		lines := strings.Split(string(data), "\n")
+		for _, line := range lines[1:] { // Skip header
+			fields := strings.Fields(line)
+			if len(fields) >= 4 && fields[0] == ip {
+				mac := fields[3]
+				if mac != "00:00:00:00:00:00" && len(mac) >= 17 {
+					return normalizeMAC(mac)
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+// normalizeMAC converts MAC address to standard format
+func normalizeMAC(mac string) string {
+	// Remove any dashes and convert to colon-separated format
+	mac = strings.ReplaceAll(mac, "-", ":")
+	mac = strings.ToUpper(mac)
+	return mac
 }

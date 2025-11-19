@@ -16,6 +16,70 @@ import (
 	"github.com/x1thexxx-lgtm/goscanner/pkg/inventory"
 )
 
+// GLPIInventory represents the GLPI inventory format
+type GLPIInventory struct {
+	Action        string              `json:"action"`
+	DeviceID      string              `json:"deviceid"`
+	ItemType      string              `json:"itemtype"`
+	VersionClient string              `json:"versionclient"`
+	Content       *GLPIInventoryContent `json:"content"`
+}
+
+// GLPIInventoryContent contains the actual inventory data
+type GLPIInventoryContent struct {
+	Hardware         *GLPIHardware           `json:"hardware,omitempty"`
+	OperatingSystem  *GLPIOperatingSystem    `json:"operatingsystem,omitempty"`
+	Networks         []GLPINetwork           `json:"networks,omitempty"`
+	NetworkDevice    *GLPINetworkDevice      `json:"network_device,omitempty"`
+	Printers         []GLPIPrinter           `json:"printers,omitempty"`
+}
+
+// GLPIHardware represents computer hardware info
+type GLPIHardware struct {
+	Name         string `json:"name,omitempty"`
+	UUID         string `json:"uuid,omitempty"`
+	ChassisType  string `json:"chassis_type,omitempty"`
+	Workgroup    string `json:"workgroup,omitempty"`
+	Description  string `json:"description,omitempty"`
+}
+
+// GLPIOperatingSystem represents OS info
+type GLPIOperatingSystem struct {
+	FullName      string `json:"full_name,omitempty"`
+	KernelVersion string `json:"kernel_version,omitempty"`
+	Arch          string `json:"arch,omitempty"`
+	FQDN          string `json:"fqdn,omitempty"`
+}
+
+// GLPINetwork represents network interface info
+type GLPINetwork struct {
+	Description string   `json:"description,omitempty"`
+	IPAddress   string   `json:"ipaddress,omitempty"`
+	IPAddress6  string   `json:"ipaddress6,omitempty"`
+	MacAddr     string   `json:"macaddr,omitempty"`
+	Status      string   `json:"status,omitempty"`
+	Type        string   `json:"type,omitempty"`
+	Speed       int      `json:"speed,omitempty"`
+}
+
+// GLPINetworkDevice represents network equipment
+type GLPINetworkDevice struct {
+	Type     string `json:"type,omitempty"`
+	Model    string `json:"model,omitempty"`
+	Firmware string `json:"firmware,omitempty"`
+	MAC      string `json:"mac,omitempty"`
+	Serial   string `json:"serial,omitempty"`
+}
+
+// GLPIPrinter represents printer info
+type GLPIPrinter struct {
+	Name       string `json:"name,omitempty"`
+	Driver     string `json:"driver,omitempty"`
+	Port       string `json:"port,omitempty"`
+	Serial     string `json:"serial,omitempty"`
+	Status     string `json:"status,omitempty"`
+}
+
 // Client interacts with GLPI REST API.
 type Client struct {
 	cfg        config.GLPIConfig
@@ -36,32 +100,85 @@ func (c *Client) UpsertAsset(ctx context.Context, asset inventory.AssetModel) er
 	if c.baseURL == "" {
 		return fmt.Errorf("glpi base url not configured")
 	}
-	if err := c.ensureAuth(ctx); err != nil {
-		return err
-	}
-	body, err := json.Marshal(asset)
+
+	// Convert AssetModel to GLPI inventory format
+	glpiInventory := convertToGLPIInventory(asset)
+
+	body, err := json.Marshal(glpiInventory)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal inventory: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s/inventory", c.baseURL), bytes.NewReader(body))
-	if err != nil {
-		return err
+
+	// Construct the inventory endpoint URL
+	// Extract the base GLPI URL (before /api.php or /apirest.php)
+	inventoryURL := getInventoryURL(c.baseURL)
+
+	// Retry logic with exponential backoff
+	maxRetries := 3
+	var lastErr error
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			// Exponential backoff: 2s, 4s, 8s
+			backoff := time.Duration(1<<uint(attempt)) * time.Second
+			time.Sleep(backoff)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, inventoryURL, bytes.NewReader(body))
+		if err != nil {
+			return fmt.Errorf("create request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		// GLPI inventory endpoint may require authentication depending on configuration
+		if c.useOAuth() {
+			if err := c.ensureAuth(ctx); err != nil {
+				lastErr = fmt.Errorf("oauth auth: %w", err)
+				continue
+			}
+			req.Header.Set("Authorization", "Bearer "+c.token)
+		} else if c.cfg.UserToken != "" {
+			if err := c.ensureAuth(ctx); err != nil {
+				lastErr = fmt.Errorf("legacy auth: %w", err)
+				continue
+			}
+			req.Header.Set("Session-Token", c.token)
+		}
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("http request: %w", err)
+			continue
+		}
+
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			return nil
+		}
+
+		// Handle specific error codes
+		if resp.StatusCode == 401 || resp.StatusCode == 403 {
+			// Authentication failed, clear token and retry once
+			c.mu.Lock()
+			c.token = ""
+			c.tokenUntil = time.Time{}
+			c.mu.Unlock()
+			if attempt == 0 {
+				continue
+			}
+		}
+
+		lastErr = fmt.Errorf("glpi inventory failed (status %d): %s", resp.StatusCode, string(bodyBytes))
+
+		// Don't retry on 4xx errors (except 401/403 which we handle above)
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 && resp.StatusCode != 401 && resp.StatusCode != 403 {
+			return lastErr
+		}
 	}
-	req.Header.Set("Content-Type", "application/json")
-	if c.useOAuth() {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	} else {
-		req.Header.Set("Session-Token", c.token)
-	}
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		return fmt.Errorf("glpi upsert failed: %s", resp.Status)
-	}
-	return nil
+
+	return fmt.Errorf("glpi inventory failed after %d attempts: %w", maxRetries+1, lastErr)
 }
 
 func (c *Client) ensureAuth(ctx context.Context) error {
@@ -191,4 +308,122 @@ func oauthTokenURL(base string) (string, error) {
 func sanitizeBaseURL(raw string) string {
 	trimmed := strings.TrimSpace(raw)
 	return strings.TrimRight(trimmed, "/")
+}
+
+// convertToGLPIInventory transforms AssetModel to GLPI inventory format
+func convertToGLPIInventory(asset inventory.AssetModel) *GLPIInventory {
+	inv := &GLPIInventory{
+		Action:        "inventory",
+		DeviceID:      asset.Identifier,
+		VersionClient: "goscanner-v1.0",
+		Content:       &GLPIInventoryContent{},
+	}
+
+	// Set device ID - use MAC, IP, or serial as fallback
+	if inv.DeviceID == "" {
+		if asset.MAC != "" {
+			inv.DeviceID = asset.MAC
+		} else if asset.IP.IsValid() {
+			inv.DeviceID = asset.IP.String()
+		} else if asset.Serial != "" {
+			inv.DeviceID = asset.Serial
+		} else {
+			inv.DeviceID = fmt.Sprintf("goscanner-%s", asset.IP.String())
+		}
+	}
+
+	// Map asset type to GLPI item type
+	switch asset.Type {
+	case "Computer", "PC":
+		inv.ItemType = "Computer"
+		inv.Content.Hardware = &GLPIHardware{
+			Name:        asset.Hostname,
+			UUID:        asset.Serial,
+			Description: fmt.Sprintf("Discovered by goscanner - %s", asset.Vendor),
+		}
+		if asset.OSName != "" {
+			inv.Content.OperatingSystem = &GLPIOperatingSystem{
+				FullName:      fmt.Sprintf("%s %s", asset.OSName, asset.OSVersion),
+				KernelVersion: asset.OSVersion,
+				FQDN:          asset.Hostname,
+			}
+		}
+	case "NetworkEquipment", "Switch", "Router":
+		inv.ItemType = "NetworkEquipment"
+		inv.Content.NetworkDevice = &GLPINetworkDevice{
+			Type:   asset.Type,
+			Model:  asset.Model,
+			MAC:    asset.MAC,
+			Serial: asset.Serial,
+		}
+	case "Printer", "Peripheral":
+		// Check if it's actually a printer or generic peripheral
+		if strings.Contains(strings.ToLower(asset.Model), "printer") ||
+			strings.Contains(strings.ToLower(asset.Vendor), "printer") ||
+			asset.Type == "Printer" {
+			inv.ItemType = "Printer"
+			inv.Content.Printers = []GLPIPrinter{
+				{
+					Name:   asset.Hostname,
+					Serial: asset.Serial,
+					Status: "active",
+				},
+			}
+		} else {
+			// For other peripherals like copiers, use Computer type with description
+			inv.ItemType = "Computer"
+			inv.Content.Hardware = &GLPIHardware{
+				Name:        asset.Hostname,
+				UUID:        asset.Serial,
+				Description: fmt.Sprintf("%s %s - Peripheral", asset.Vendor, asset.Model),
+				ChassisType: "Peripheral",
+			}
+		}
+	default:
+		// Default to Computer for unknown types
+		inv.ItemType = "Computer"
+		inv.Content.Hardware = &GLPIHardware{
+			Name:        asset.Hostname,
+			UUID:        asset.Serial,
+			Description: fmt.Sprintf("%s %s", asset.Vendor, asset.Model),
+		}
+	}
+
+	// Add network information if available
+	if asset.IP.IsValid() {
+		network := GLPINetwork{
+			Description: "Primary Network Interface",
+			Status:      "Up",
+			Type:        "ethernet",
+		}
+
+		if asset.IP.Is4() {
+			network.IPAddress = asset.IP.String()
+		} else if asset.IP.Is6() {
+			network.IPAddress6 = asset.IP.String()
+		}
+
+		if asset.MAC != "" {
+			network.MacAddr = asset.MAC
+		}
+
+		inv.Content.Networks = []GLPINetwork{network}
+	}
+
+	return inv
+}
+
+// getInventoryURL extracts the base GLPI URL and constructs inventory endpoint
+func getInventoryURL(apiBaseURL string) string {
+	// Remove API paths to get base GLPI URL
+	base := apiBaseURL
+
+	// Remove /api.php/v2.x or /apirest.php paths
+	if idx := strings.Index(base, "/api.php"); idx != -1 {
+		base = base[:idx]
+	} else if idx := strings.Index(base, "/apirest.php"); idx != -1 {
+		base = base[:idx]
+	}
+
+	return base + "/front/inventory.php"
 }
