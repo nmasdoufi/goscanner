@@ -30,6 +30,7 @@ type GLPIInventoryContent struct {
 	Hardware         *GLPIHardware           `json:"hardware,omitempty"`
 	OperatingSystem  *GLPIOperatingSystem    `json:"operatingsystem,omitempty"`
 	Networks         []GLPINetwork           `json:"networks,omitempty"`
+	NetworkPorts     []GLPINetworkPort       `json:"network_ports,omitempty"`
 	NetworkDevice    *GLPINetworkDevice      `json:"network_device,omitempty"`
 	Printers         []GLPIPrinter           `json:"printers,omitempty"`
 }
@@ -41,6 +42,16 @@ type GLPIHardware struct {
 	ChassisType  string `json:"chassis_type,omitempty"`
 	Workgroup    string `json:"workgroup,omitempty"`
 	Description  string `json:"description,omitempty"`
+}
+
+// GLPINetworkPort represents a network port/service
+type GLPINetworkPort struct {
+	Logical      int    `json:"logical,omitempty"`
+	Name         string `json:"name,omitempty"`
+	Instantiation string `json:"instantiation_type,omitempty"`
+	MAC          string `json:"mac,omitempty"`
+	IPAddress    string `json:"ipaddress,omitempty"`
+	Type         string `json:"type,omitempty"`
 }
 
 // GLPIOperatingSystem represents OS info
@@ -337,12 +348,11 @@ func convertToGLPIInventory(asset inventory.AssetModel) *GLPIInventory {
 		}
 	}
 
-	// Build description with open ports information
+	// Get open ports for network port entries (but not for description)
 	openPorts := asset.Attributes["open_ports"]
+
+	// Build clean description
 	description := fmt.Sprintf("Discovered by goscanner - %s", asset.Vendor)
-	if openPorts != "" {
-		description = fmt.Sprintf("%s | Open ports: %s", description, openPorts)
-	}
 
 	// Map asset type to GLPI item type
 	switch asset.Type {
@@ -384,58 +394,27 @@ func convertToGLPIInventory(asset inventory.AssetModel) *GLPIInventory {
 		} else {
 			// For other peripherals like copiers, use Computer type with description
 			inv.ItemType = "Computer"
-			peripheralDesc := fmt.Sprintf("%s %s - Peripheral", asset.Vendor, asset.Model)
-			if openPorts != "" {
-				peripheralDesc = fmt.Sprintf("%s | Open ports: %s", peripheralDesc, openPorts)
-			}
 			inv.Content.Hardware = &GLPIHardware{
 				Name:        asset.Hostname,
 				UUID:        asset.Serial,
-				Description: peripheralDesc,
+				Description: fmt.Sprintf("%s %s - Peripheral", asset.Vendor, asset.Model),
 				ChassisType: "Peripheral",
 			}
 		}
 	default:
 		// Default to Computer for unknown types
 		inv.ItemType = "Computer"
-		defaultDesc := fmt.Sprintf("%s %s", asset.Vendor, asset.Model)
-		if openPorts != "" {
-			defaultDesc = fmt.Sprintf("%s | Open ports: %s", defaultDesc, openPorts)
-		}
 		inv.Content.Hardware = &GLPIHardware{
 			Name:        asset.Hostname,
 			UUID:        asset.Serial,
-			Description: defaultDesc,
+			Description: fmt.Sprintf("%s %s", asset.Vendor, asset.Model),
 		}
 	}
 
 	// Add network information if available
 	if asset.IP.IsValid() {
-		// Build detailed network description with discovered information
-		netDesc := "Primary Network Interface"
-		if openPorts != "" {
-			netDesc = fmt.Sprintf("%s | Open TCP ports: %s", netDesc, openPorts)
-		}
-
-		// Add HTTP/HTTPS status if available
-		if httpStatus, ok := asset.Attributes["http_http_status"]; ok {
-			netDesc = fmt.Sprintf("%s | HTTP: %s", netDesc, httpStatus)
-		}
-		if httpsStatus, ok := asset.Attributes["http_https_status"]; ok {
-			netDesc = fmt.Sprintf("%s | HTTPS: %s", netDesc, httpsStatus)
-		}
-
-		// Add SNMP info if available
-		if snmpDesc, ok := asset.Attributes["snmp_sysdescr"]; ok && snmpDesc != "" {
-			// Truncate if too long
-			if len(snmpDesc) > 100 {
-				snmpDesc = snmpDesc[:97] + "..."
-			}
-			netDesc = fmt.Sprintf("%s | SNMP: %s", netDesc, snmpDesc)
-		}
-
 		network := GLPINetwork{
-			Description: netDesc,
+			Description: "Primary Network Interface",
 			Status:      "Up",
 			Type:        "ethernet",
 		}
@@ -453,7 +432,76 @@ func convertToGLPIInventory(asset inventory.AssetModel) *GLPIInventory {
 		inv.Content.Networks = []GLPINetwork{network}
 	}
 
+	// Add network ports for each open TCP port discovered
+	if openPorts != "" {
+		// Parse the port list from the string format "[80 443 135 445]"
+		portsStr := strings.Trim(openPorts, "[]")
+		if portsStr != "" {
+			portStrings := strings.Fields(portsStr)
+			networkPorts := make([]GLPINetworkPort, 0, len(portStrings))
+
+			for _, portStr := range portStrings {
+				// Parse port number
+				var portNum int
+				fmt.Sscanf(portStr, "%d", &portNum)
+				if portNum > 0 {
+					// Determine service name based on common ports
+					serviceName := getServiceName(portNum)
+
+					networkPorts = append(networkPorts, GLPINetworkPort{
+						Logical:      portNum,
+						Name:         serviceName,
+						Instantiation: "NetworkPortAggregate",
+						IPAddress:    asset.IP.String(),
+						MAC:          asset.MAC,
+						Type:         "tcp",
+					})
+				}
+			}
+
+			if len(networkPorts) > 0 {
+				inv.Content.NetworkPorts = networkPorts
+			}
+		}
+	}
+
 	return inv
+}
+
+// getServiceName returns the common service name for a port number
+func getServiceName(port int) string {
+	services := map[int]string{
+		20:   "FTP Data",
+		21:   "FTP Control",
+		22:   "SSH",
+		23:   "Telnet",
+		25:   "SMTP",
+		53:   "DNS",
+		80:   "HTTP",
+		110:  "POP3",
+		135:  "MS RPC",
+		139:  "NetBIOS",
+		143:  "IMAP",
+		161:  "SNMP",
+		443:  "HTTPS",
+		445:  "SMB",
+		515:  "LPD (Printer)",
+		587:  "SMTP (Submission)",
+		993:  "IMAPS",
+		995:  "POP3S",
+		3306: "MySQL",
+		3389: "RDP",
+		5432: "PostgreSQL",
+		5900: "VNC",
+		8080: "HTTP Proxy",
+		8443: "HTTPS Alt",
+		9100: "JetDirect (Printer)",
+	}
+
+	if name, ok := services[port]; ok {
+		return fmt.Sprintf("%s (TCP/%d)", name, port)
+	}
+	return fmt.Sprintf("TCP/%d", port)
 }
 
 // getInventoryURL extracts the base GLPI URL and constructs inventory endpoint
