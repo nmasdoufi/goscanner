@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/gosnmp/gosnmp"
-	"github.com/x1thexxx-lgtm/goscanner/pkg/discovery"
-	"github.com/x1thexxx-lgtm/goscanner/pkg/inventory"
+	"github.com/nmasdoufi/goscanner/pkg/discovery"
+	"github.com/nmasdoufi/goscanner/pkg/inventory"
 )
 
 // Engine orchestrates host fingerprinting.

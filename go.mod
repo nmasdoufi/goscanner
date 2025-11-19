@@ -1,4 +1,4 @@
-module github.com/x1thexxx-lgtm/goscanner
+module github.com/nmasdoufi/goscanner
 
 go 1.22
 

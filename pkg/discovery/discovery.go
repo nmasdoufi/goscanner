@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/x1thexxx-lgtm/goscanner/pkg/config"
-	"github.com/x1thexxx-lgtm/goscanner/pkg/logging"
+	"github.com/nmasdoufi/goscanner/pkg/config"
+	"github.com/nmasdoufi/goscanner/pkg/logging"
 )
 
 // HostResult describes liveness outcome.

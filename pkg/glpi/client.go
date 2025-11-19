@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/x1thexxx-lgtm/goscanner/pkg/config"
-	"github.com/x1thexxx-lgtm/goscanner/pkg/inventory"
+	"github.com/nmasdoufi/goscanner/pkg/config"
+	"github.com/nmasdoufi/goscanner/pkg/inventory"
 )
 
 // GLPIInventory represents the GLPI inventory format
