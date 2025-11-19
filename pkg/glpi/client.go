@@ -136,7 +136,7 @@ func (c *Client) UpsertAsset(ctx context.Context, asset inventory.AssetModel) er
 				lastErr = fmt.Errorf("oauth auth: %w", err)
 				continue
 			}
-			// req.Header.Set("Authorization", "Bearer "+c.token)
+			req.Header.Set("Authorization", "Bearer "+c.token)
 		} else if c.cfg.UserToken != "" {
 			if err := c.ensureAuth(ctx); err != nil {
 				lastErr = fmt.Errorf("legacy auth: %w", err)
