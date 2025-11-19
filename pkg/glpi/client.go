@@ -243,7 +243,7 @@ func (c *Client) ensureOAuthToken(ctx context.Context) error {
 		return err
 	}
 	form := url.Values{}
-	form.Set("grant_type", "password")
+	form.Set("grant_type", "client_credentials")
 	form.Set("client_id", c.cfg.OAuth.ClientID)
 	form.Set("client_secret", c.cfg.OAuth.ClientSecret)
 	form.Set("username", c.cfg.OAuth.Username)
