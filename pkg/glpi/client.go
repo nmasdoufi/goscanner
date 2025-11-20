@@ -343,20 +343,21 @@ func convertToGLPIInventory(asset inventory.AssetModel) *GLPIInventory {
 		}
 	}
 
+	// Use IP address as hostname fallback
+	hostname := asset.Hostname
+	if hostname == "" && asset.IP.IsValid() {
+		hostname = asset.IP.String()
+	}
+
 	// Build clean description
 	description := fmt.Sprintf("Discovered by goscanner - %s", asset.Vendor)
 
 	// Map asset type to GLPI item type
 	switch asset.Type {
 	case "Computer", "PC":
-		computerName := asset.Hostname
-		if computerName == "" {
-			computerName = asset.IP.String() // Use IP as fallback name
-		}
-
 		inv.ItemType = "Computer"
 		inv.Content.Hardware = &GLPIHardware{
-			Name:        computerName,
+			Name:        hostname,
 			UUID:        asset.Serial,
 			Description: description,
 		}
@@ -364,7 +365,7 @@ func convertToGLPIInventory(asset inventory.AssetModel) *GLPIInventory {
 			inv.Content.OperatingSystem = &GLPIOperatingSystem{
 				FullName:      fmt.Sprintf("%s %s", asset.OSName, asset.OSVersion),
 				KernelVersion: asset.OSVersion,
-				FQDN:          asset.Hostname,
+				FQDN:          hostname,
 			}
 		}
 	case "NetworkEquipment", "Switch", "Router":
@@ -383,7 +384,7 @@ func convertToGLPIInventory(asset inventory.AssetModel) *GLPIInventory {
 			inv.ItemType = "Printer"
 			inv.Content.Printers = []GLPIPrinter{
 				{
-					Name:   asset.Hostname,
+					Name:   hostname,
 					Serial: asset.Serial,
 					Status: "active",
 				},
@@ -392,7 +393,7 @@ func convertToGLPIInventory(asset inventory.AssetModel) *GLPIInventory {
 			// For other peripherals like copiers, use Computer type with description
 			inv.ItemType = "Computer"
 			inv.Content.Hardware = &GLPIHardware{
-				Name:        asset.Hostname,
+				Name:        hostname,
 				UUID:        asset.Serial,
 				Description: fmt.Sprintf("%s %s - Peripheral", asset.Vendor, asset.Model),
 				ChassisType: "Peripheral",
@@ -402,7 +403,7 @@ func convertToGLPIInventory(asset inventory.AssetModel) *GLPIInventory {
 		// Default to Computer for unknown types
 		inv.ItemType = "Computer"
 		inv.Content.Hardware = &GLPIHardware{
-			Name:        asset.Hostname,
+			Name:        hostname,
 			UUID:        asset.Serial,
 			Description: fmt.Sprintf("%s %s", asset.Vendor, asset.Model),
 		}

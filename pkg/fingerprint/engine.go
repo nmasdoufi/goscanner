@@ -146,17 +146,36 @@ func (e *Engine) tryHTTP(ctx context.Context, asset *inventory.AssetModel, ip st
 		fmt.Printf("[HTTP] Response status: %d\n", resp.StatusCode)
 	}
 
-	// Extract server header
+	// Extract server header for vendor/model information
 	serverHeader := resp.Header.Get("Server")
 	if serverHeader != "" {
 		if e.verbose {
 			fmt.Printf("[HTTP] Server header: %s\n", serverHeader)
 		}
-		if asset.Hostname == "" {
-			asset.Hostname = serverHeader
-		}
+
+		// Extract vendor from server header (e.g., "Apache/2.4.59" -> vendor info)
 		if asset.Vendor == "" {
-			asset.Vendor = serverHeader
+			vendor := extractVendorFromHTTP(serverHeader)
+			if vendor != "" {
+				asset.Vendor = vendor
+				if e.verbose {
+					fmt.Printf("[HTTP] Extracted vendor: %s\n", vendor)
+				}
+			}
+		}
+
+		// Store full server header in attributes for reference
+		asset.Attributes["http_server"] = serverHeader
+
+		// Extract model information from server header
+		if asset.Model == "" {
+			model := extractModelFromHTTP(serverHeader)
+			if model != "" {
+				asset.Model = model
+				if e.verbose {
+					fmt.Printf("[HTTP] Extracted model: %s\n", model)
+				}
+			}
 		}
 	}
 
@@ -403,6 +422,69 @@ func extractVendor(sysDescr string) string {
 	}
 
 	return ""
+}
+
+// extractVendorFromHTTP extracts vendor information from HTTP Server header
+func extractVendorFromHTTP(serverHeader string) string {
+	serverLower := strings.ToLower(serverHeader)
+
+	// Common web server vendors
+	httpVendors := map[string]string{
+		"apache":      "Apache",
+		"nginx":       "Nginx",
+		"microsoft":   "Microsoft",
+		"iis":         "Microsoft IIS",
+		"lighttpd":    "Lighttpd",
+		"tomcat":      "Apache Tomcat",
+		"jetty":       "Eclipse Jetty",
+		"weblogic":    "Oracle WebLogic",
+		"websphere":   "IBM WebSphere",
+		"canon":       "Canon",
+		"xerox":       "Xerox",
+		"ricoh":       "Ricoh",
+		"hp":          "HP",
+		"dell":        "Dell",
+		"cisco":       "Cisco",
+		"brother":     "Brother",
+		"epson":       "Epson",
+		"kyocera":     "Kyocera",
+		"sharp":       "Sharp",
+		"konica":      "Konica Minolta",
+	}
+
+	for key, vendor := range httpVendors {
+		if strings.Contains(serverLower, key) {
+			return vendor
+		}
+	}
+
+	// If no specific vendor found, try to extract the first word
+	parts := strings.Fields(serverHeader)
+	if len(parts) > 0 {
+		// Remove version numbers and special chars
+		vendorPart := strings.Split(parts[0], "/")[0]
+		if vendorPart != "" && len(vendorPart) > 2 {
+			return vendorPart
+		}
+	}
+
+	return ""
+}
+
+// extractModelFromHTTP extracts model/version from HTTP Server header
+func extractModelFromHTTP(serverHeader string) string {
+	// Try to extract version info (e.g., "Apache/2.4.59" -> "2.4.59")
+	if strings.Contains(serverHeader, "/") {
+		parts := strings.Split(serverHeader, "/")
+		if len(parts) >= 2 {
+			// Return the full server string as model
+			return serverHeader
+		}
+	}
+
+	// For web-enabled devices, the server header might be the model
+	// (e.g., printer models often return custom server strings)
+	return serverHeader
 }
 
 // getVendorFromOID extracts vendor from enterprise OID
