@@ -31,7 +31,6 @@ type GLPIInventoryContent struct {
 	OperatingSystem  *GLPIOperatingSystem    `json:"operatingsystem,omitempty"`
 	Networks         []GLPINetwork           `json:"networks,omitempty"`
 	NetworkDevice    *GLPINetworkDevice      `json:"network_device,omitempty"`
-	Printers         []GLPIPrinter           `json:"printers,omitempty"`
 }
 
 // GLPIHardware represents computer hardware info
@@ -62,22 +61,13 @@ type GLPINetwork struct {
 	Speed       int      `json:"speed,omitempty"`
 }
 
-// GLPINetworkDevice represents network equipment
+// GLPINetworkDevice represents network equipment and printers
 type GLPINetworkDevice struct {
 	Type     string `json:"type,omitempty"`
 	Model    string `json:"model,omitempty"`
 	Firmware string `json:"firmware,omitempty"`
 	MAC      string `json:"mac,omitempty"`
 	Serial   string `json:"serial,omitempty"`
-}
-
-// GLPIPrinter represents printer info
-type GLPIPrinter struct {
-	Name       string `json:"name,omitempty"`
-	Driver     string `json:"driver,omitempty"`
-	Port       string `json:"port,omitempty"`
-	Serial     string `json:"serial,omitempty"`
-	Status     string `json:"status,omitempty"`
 }
 
 // Client interacts with GLPI REST API.
@@ -382,12 +372,12 @@ func convertToGLPIInventory(asset inventory.AssetModel) *GLPIInventory {
 			strings.Contains(strings.ToLower(asset.Vendor), "printer") ||
 			asset.Type == "Printer" {
 			inv.ItemType = "Printer"
-			inv.Content.Printers = []GLPIPrinter{
-				{
-					Name:   hostname,
-					Serial: asset.Serial,
-					Status: "active",
-				},
+			// For Printer itemtype, GLPI expects data in network_device field
+			inv.Content.NetworkDevice = &GLPINetworkDevice{
+				Type:   "Printer",
+				Model:  asset.Model,
+				MAC:    asset.MAC,
+				Serial: asset.Serial,
 			}
 		} else {
 			// For other peripherals like copiers, use Computer type with description
