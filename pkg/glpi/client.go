@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/x1thexxx-lgtm/goscanner/pkg/config"
-	"github.com/x1thexxx-lgtm/goscanner/pkg/inventory"
+	"github.com/nmasdoufi/goscanner/pkg/config"
+	"github.com/nmasdoufi/goscanner/pkg/inventory"
 )
 
 // GLPIInventory represents the GLPI inventory format
@@ -21,12 +21,12 @@ type GLPIInventory struct {
 	Action        string              `json:"action"`
 	DeviceID      string              `json:"deviceid"`
 	ItemType      string              `json:"itemtype"`
-	VersionClient string              `json:"versionclient"`
 	Content       *GLPIInventoryContent `json:"content"`
 }
 
 // GLPIInventoryContent contains the actual inventory data
 type GLPIInventoryContent struct {
+	VersionClient    string                  `json:"versionclient"`
 	Hardware         *GLPIHardware           `json:"hardware,omitempty"`
 	OperatingSystem  *GLPIOperatingSystem    `json:"operatingsystem,omitempty"`
 	Networks         []GLPINetwork           `json:"networks,omitempty"`
@@ -109,6 +109,9 @@ func (c *Client) UpsertAsset(ctx context.Context, asset inventory.AssetModel) er
 		return fmt.Errorf("marshal inventory: %w", err)
 	}
 
+	// Debug: Log the JSON being sent (only in development)
+	// Uncomment to see inventory JSON:
+	fmt.Printf("Sending inventory for %s:\n%s\n", asset.IP, string(body))
 	// Debug: Log the JSON being sent
 	fmt.Printf("\n[GLPI] Sending inventory for %s:\n%s\n\n", asset.IP, string(body))
 
@@ -159,6 +162,8 @@ func (c *Client) UpsertAsset(ctx context.Context, asset inventory.AssetModel) er
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			// Debug: Show successful response
+			// Uncomment to see GLPI response:
+			fmt.Printf("GLPI inventory accepted (status %d): %s\n", resp.StatusCode, string(bodyBytes))
 			fmt.Printf("[GLPI] Inventory accepted for %s (status %d): %s\n\n", asset.IP, resp.StatusCode, string(bodyBytes))
 			return nil
 		}
@@ -248,11 +253,11 @@ func (c *Client) ensureOAuthToken(ctx context.Context) error {
 		return err
 	}
 	form := url.Values{}
-	form.Set("grant_type", "password")
+	form.Set("grant_type", "client_credentials")
 	form.Set("client_id", c.cfg.OAuth.ClientID)
 	form.Set("client_secret", c.cfg.OAuth.ClientSecret)
-	form.Set("username", c.cfg.OAuth.Username)
-	form.Set("password", c.cfg.OAuth.Password)
+	// form.Set("username", c.cfg.OAuth.Username)
+	// form.Set("password", c.cfg.OAuth.Password)
 	scope := c.cfg.OAuth.Scope
 	if scope == "" {
 		scope = "api"
@@ -298,7 +303,7 @@ func (c *Client) useOAuth() bool {
 	if c.cfg.OAuth == nil {
 		return false
 	}
-	return c.cfg.OAuth.ClientID != "" && c.cfg.OAuth.ClientSecret != "" && c.cfg.OAuth.Username != ""
+	return c.cfg.OAuth.ClientID != "" && c.cfg.OAuth.ClientSecret != ""
 }
 
 func oauthTokenURL(base string) (string, error) {
@@ -320,8 +325,9 @@ func convertToGLPIInventory(asset inventory.AssetModel) *GLPIInventory {
 	inv := &GLPIInventory{
 		Action:        "inventory",
 		DeviceID:      asset.Identifier,
-		VersionClient: "goscanner-v1.0",
-		Content:       &GLPIInventoryContent{},
+		Content:       &GLPIInventoryContent{
+			VersionClient: "goscanner-v1.0",
+		},
 	}
 
 	// Set device ID - use MAC, IP, or serial as fallback
@@ -343,9 +349,14 @@ func convertToGLPIInventory(asset inventory.AssetModel) *GLPIInventory {
 	// Map asset type to GLPI item type
 	switch asset.Type {
 	case "Computer", "PC":
+		computerName := asset.Hostname
+		if computerName == "" {
+			computerName = asset.IP.String() // Use IP as fallback name
+		}
+
 		inv.ItemType = "Computer"
 		inv.Content.Hardware = &GLPIHardware{
-			Name:        asset.Hostname,
+			Name:        computerName,
 			UUID:        asset.Serial,
 			Description: description,
 		}
@@ -401,7 +412,7 @@ func convertToGLPIInventory(asset inventory.AssetModel) *GLPIInventory {
 	if asset.IP.IsValid() {
 		network := GLPINetwork{
 			Description: "Primary Network Interface",
-			Status:      "Up",
+			Status:      "up",
 			Type:        "ethernet",
 		}
 

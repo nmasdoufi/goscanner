@@ -94,30 +94,80 @@ When GLPI credentials are configured, assets are automatically created or update
 
 The scanner uses OAuth 2.0 client credentials grant for secure authentication with GLPI's native inventory API.
 
-**In GLPI:**
-1. Navigate to **Setup → General → API**
-2. Ensure the API is enabled
-3. Navigate to **Setup → OAuth Clients**
-4. Click **Add** to create a new OAuth client:
-   - **Name:** `goscanner` (or your preferred name)
-   - **Client ID:** Generate or specify (e.g., `scanner`)
-   - **Client Secret:** Generate and **copy immediately** (shown only once)
-   - **Grant Type:** Select `Client Credentials`
-   - **Scopes:** Select `api` (required for inventory submission)
-5. Save the client
+**Step 1: Enable API in GLPI**
 
-**In goscanner.yaml:**
+1. Navigate to **Setup → General → API**
+2. Enable **"Enable Rest API"**
+3. Save
+
+**Step 2: Create OAuth Client**
+
+1. Navigate to **Setup → OAuth Clients**
+2. Click **Add** to create a new OAuth client
+3. Configure the client:
+   - **Name:** `goscanner` (or your preferred name)
+   - **Client ID:** Generate or specify (e.g., a long random string)
+   - **Client Secret:** Click generate and **copy immediately** (shown only once)
+   - **Grant Type:** Select **`Client Credentials`** (NOT "Password")
+   - **Scopes:** Select **`inventory`** and **`api`** (required for inventory submission)
+4. Save the client
+
+**Step 3: Configure Inventory Settings**
+
+1. Navigate to **Administration → Inventory → Configuration**
+2. Under **"Enable Inventory"**, ensure it's checked
+3. Under **"Authorization header"**, select **"OAuth - Client credentials"**
+4. Save the configuration
+
+**Step 4: Create Entity Assignment Rule**
+
+This rule assigns imported computers to an entity (required for computers to appear in inventory):
+
+1. Navigate to **Administration → Rules → Rules for assigning an item to an entity**
+2. Click **Add**
+3. Configure the rule:
+   - **Name:** `Auto assign to root entity`
+   - **Active:** Yes
+   - **Criteria:** Leave empty (no criteria = accept all)
+   - **Actions:** Click "Add a New Action"
+     - **Action:** Entity
+     - **Value:** Root entity (or your preferred entity)
+4. Save the rule
+
+**Step 5: Create Import/Link Rule**
+
+This rule controls how inventory data is imported:
+
+1. Navigate to **Administration → Rules → Equipment import and link rules**
+2. Click **Add**
+3. Configure the rule:
+   - **Name:** `Accept all inventory`
+   - **Active:** Yes
+   - **Criteria:** Leave empty (no criteria = accept all)
+   - **Actions:** Click "Add a New Action"
+     - **Action:** Inventory link
+     - **Assign:** Assign
+     - **Value:** Link if possible
+4. Save the rule
+
+**Step 6: Configure goscanner.yaml**
+
 ```yaml
 glpi:
-  base_url: "https://your-glpi-server.com/api.php/v2.1"
+  base_url: "http://your-glpi-server.com/api.php/v2.1"  # Use http:// for Docker, https:// for production
   mode: jsonapi
   oauth:
-    client_id: "scanner"
+    client_id: "YOUR_CLIENT_ID_HERE"
     client_secret: "YOUR_CLIENT_SECRET_HERE"
-    username: "glpi"
-    password: ""  # Leave empty to be prompted at runtime (more secure)
-    scope: "api"
+    # Do NOT include username/password for client credentials grant
+    scope: "inventory"
 ```
+
+**Important notes:**
+- Use `http://` for local Docker deployments, `https://` for production
+- Client credentials grant does NOT use username/password
+- The `inventory` scope is required for submitting inventory data
+- Make sure both rules (entity assignment and import/link) are active and ordered correctly
 
 ### Using legacy API tokens (GLPI 9.x)
 
@@ -287,74 +337,108 @@ GLPI's inventory system automatically matches existing assets by deviceid and up
 
 ## Docker and containerized GLPI
 
+### Quick Start with Docker Compose
+
+The easiest way to set up GLPI for testing with goscanner is using Docker Compose with the official GLPI image:
+
+**1. Create docker-compose.yml:**
+
+```yaml
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: glpi-mysql
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: glpidb
+      MYSQL_USER: glpi
+      MYSQL_PASSWORD: glpipassword
+    volumes:
+      - glpi-mysql-data:/var/lib/mysql
+    networks:
+      - glpi-network
+    restart: unless-stopped
+
+  glpi:
+    image: diouxx/glpi:latest
+    container_name: glpi-app
+    ports:
+      - "80:80"
+    environment:
+      TIMEZONE: Europe/Paris
+    depends_on:
+      - mysql
+    networks:
+      - glpi-network
+    restart: unless-stopped
+
+networks:
+  glpi-network:
+    driver: bridge
+
+volumes:
+  glpi-mysql-data:
+```
+
+**2. Start the containers:**
+
+```bash
+docker compose up -d
+```
+
+**3. Complete GLPI installation:**
+
+Wait about 2 minutes for GLPI to initialize, then navigate to `http://localhost` and follow the installation wizard:
+
+- **Language**: Select your preferred language
+- **License**: Accept the license
+- **Database setup**:
+  - SQL server: `mysql` (the Docker service name)
+  - SQL user: `glpi`
+  - SQL password: `glpipassword`
+  - Database: `glpidb`
+- **Complete the installation steps**
+- **Default login**: `glpi/glpi` (change password after first login)
+
+**4. Configure GLPI for goscanner:**
+
+After logging in:
+- Navigate to **Setup → General → API**
+- Enable the REST API
+- Set up OAuth client or API tokens as described in the "GLPI Configuration" section above
+
 ### Network considerations
 
-When GLPI runs in a Docker container, consider these networking aspects:
-
-**1. Scanner placement:**
+**Scanner placement:**
 - Run goscanner on the **Docker host** or a VM with network access to target subnets
 - The scanner must reach both GLPI (via HTTP/HTTPS) and target devices (via configured ports)
 
-**2. GLPI container networking:**
-
-**Bridge mode (default):**
-```bash
-docker run -d \
-  -p 80:80 \
-  -p 443:443 \
-  --name glpi \
-  diouxx/glpi
-```
-- Access GLPI at `http://docker-host-ip/`
-- goscanner can reach GLPI from any machine that can reach the Docker host
-
-**Host mode (advanced):**
-```bash
-docker run -d \
-  --network host \
-  --name glpi \
-  diouxx/glpi
-```
-- GLPI binds directly to host ports
-- Better performance for high-traffic scenarios
-
-**3. Cross-subnet scanning:**
+**Cross-subnet scanning:**
 
 If scanning multiple VLANs or subnets:
 - Ensure firewall rules allow scanner → target devices on configured ports
 - Enable IP forwarding on the Docker host if needed
 - For SNMP, ensure UDP port 161 is reachable across subnets
 
-**Example Docker Compose setup:**
-
-```yaml
-version: '3'
-services:
-  glpi:
-    image: diouxx/glpi:latest
-    ports:
-      - "80:80"
-    environment:
-      - TIMEZONE=America/New_York
-    volumes:
-      - glpi-data:/var/www/html/glpi
-    restart: unless-stopped
-
-volumes:
-  glpi-data:
-```
-
-**4. Scanner configuration for Docker:**
+**Scanner configuration for Docker:**
 
 ```yaml
 glpi:
-  # Use Docker host IP or hostname
-  base_url: "http://192.168.1.100/api.php/v2.1"
-  oauth:
-    client_id: "scanner"
-    client_secret: "secret"
-    username: "glpi"
-    password: ""
+  # Use Docker host IP or localhost if running on same machine
+  base_url: "http://localhost/apirest.php"
+  mode: legacy
+  user_token: "YOUR_USER_TOKEN_HERE"
+  # Or use OAuth for GLPI 10.0+:
+  # base_url: "http://localhost/api.php/v2.1"
+  # mode: jsonapi
+  # oauth:
+  #   client_id: "scanner"
+  #   client_secret: "YOUR_SECRET_HERE"
+  #   username: "glpi"
+  #   password: ""
 ```
 
 ### Testing connectivity
@@ -363,7 +447,10 @@ Before running scans, verify connectivity:
 
 ```bash
 # Test GLPI reachability
-curl -k https://your-glpi-host/
+curl http://localhost
+
+# Test GLPI API (after setup)
+curl http://localhost/apirest.php
 
 # Test SNMP to a target device
 snmpwalk -v2c -c public 192.168.1.50 .1.3.6.1.2.1.1.1.0
@@ -371,6 +458,23 @@ snmpwalk -v2c -c public 192.168.1.50 .1.3.6.1.2.1.1.1.0
 # Test port connectivity
 nc -zv 192.168.1.50 161
 ```
+
+### Troubleshooting Docker setup
+
+**GLPI shows blank page:**
+- Wait 2-3 minutes for full initialization
+- Check logs: `docker logs glpi-app`
+- Restart containers: `docker compose restart`
+
+**Database connection errors:**
+- Verify MySQL is running: `docker ps`
+- Check MySQL logs: `docker logs glpi-mysql`
+- Ensure service name is `mysql` in docker-compose.yml
+
+**Cannot access GLPI from browser:**
+- Check if port 80 is already in use: `sudo netstat -tulpn | grep :80`
+- Try a different port in docker-compose.yml: `"8080:80"`
+- Check Docker network: `docker network inspect glpi-network`
 
 ## Logging & troubleshooting
 
@@ -436,9 +540,10 @@ DEBUG glpi upsert successful for 192.168.1.10
 INFO  discovered 15 assets
 ```
 
-**6. "Assets pushed successfully but not appearing in GLPI"**
-- Check **Administration → Inventory** for pending/refused items
-- Verify import rules are configured correctly
-- Check **Assets → Unmanaged devices** - items might be there
-- Ensure you're viewing the correct entity in GLPI
-- **See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for detailed steps**
+## License
+
+This project is licensed under the MIT License - see LICENSE file for details.
+
+## Contributing
+
+Contributions are welcome! Please open an issue or submit a pull request.

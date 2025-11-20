@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/x1thexxx-lgtm/goscanner/pkg/config"
-	"github.com/x1thexxx-lgtm/goscanner/pkg/logging"
+	"github.com/nmasdoufi/goscanner/pkg/config"
+	"github.com/nmasdoufi/goscanner/pkg/logging"
 )
 
 // TaskRunner defines background work to execute.

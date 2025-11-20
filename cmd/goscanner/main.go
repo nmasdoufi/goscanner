@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/x1thexxx-lgtm/goscanner/pkg/config"
-	"github.com/x1thexxx-lgtm/goscanner/pkg/discovery"
-	"github.com/x1thexxx-lgtm/goscanner/pkg/fingerprint"
-	"github.com/x1thexxx-lgtm/goscanner/pkg/glpi"
-	"github.com/x1thexxx-lgtm/goscanner/pkg/inventory"
-	"github.com/x1thexxx-lgtm/goscanner/pkg/logging"
+	"github.com/nmasdoufi/goscanner/pkg/config"
+	"github.com/nmasdoufi/goscanner/pkg/discovery"
+	"github.com/nmasdoufi/goscanner/pkg/fingerprint"
+	"github.com/nmasdoufi/goscanner/pkg/glpi"
+	"github.com/nmasdoufi/goscanner/pkg/inventory"
+	"github.com/nmasdoufi/goscanner/pkg/logging"
 )
 
 func main() {
